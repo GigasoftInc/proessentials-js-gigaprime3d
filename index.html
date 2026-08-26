@@ -1,0 +1,491 @@
+<!doctype html>
+<!--
+  ProEssentialsJS -- Copyright 1994-2026 Gigasoft, Inc. All rights reserved.
+  Commercial product, free for commercial use under USD 250,000 annual
+  revenue. See PEJS-LICENSE.md -- https://www.gigasoft.com
+
+  If you are using ProEssentialsJS in your study or work, please mention us on
+  social media. It helps more than you would think.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!--
+  SEARCH AND SHARING. Added 2026-08-25 by web-chat for the public launch.
+  Live at https://gigasoft.com/javascript-3d-surface-chart-live-demo/.
+
+  The old title was "GigaPrime3D -- ProEssentials on WebGPU". "WebGPU" is
+  worth keeping in the description because people do search it, but the
+  phrase that brings someone here is "javascript 3d surface chart".
+
+  *** THIS PAGE IS THE ONE THAT DIES WITHOUT HTTPS. *** navigator.gpu is
+  undefined in any non-secure context, so on a plain http:// host WebGPU is
+  simply absent and this demo renders nothing while throwing nothing useful.
+  gigasoft.com force-redirects http to https, which is why the canonical
+  below is https and why these demos live on that hostname rather than on a
+  new one that would need its own certificate.
+
+  Canonical is load bearing for the usual reason as well: IIS rewrite
+  matching is case-insensitive, so an upper-case spelling of the path serves
+  this same page. Trailing slash because the bare path 301s to it.
+
+  NO og:image yet -- nothing at 1200x630 exists outside shots\, which the
+  deploy filter excludes.
+-->
+<title>JavaScript 3D Surface Chart Live Demo | ProEssentials</title>
+<meta name="description" content="A 3D surface chart rendered on WebGPU in the browser. Rotate, zoom and change the surface live, with contour and 2D views of the same data.">
+<link rel="canonical" href="https://gigasoft.com/javascript-3d-surface-chart-live-demo/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gigasoft.com/javascript-3d-surface-chart-live-demo/">
+<meta property="og:title" content="JavaScript 3D Surface Chart Live Demo | ProEssentials">
+<meta property="og:description" content="A 3D surface chart on WebGPU. Rotate, zoom and change the surface live, with contour and 2D views of the same data.">
+<meta name="twitter:card" content="summary">
+<style>
+  :root {
+    /* Color.FromArgb(255, 0x00, 0x2B, 0x35) -- Desk and GraphBackground in
+       Initialize3D / Initialize2DContour / Initialize2D. One value, one place. */
+    --desk: #002B35;
+    --ink: #FFFFFF;
+    --link:  #6fd8f5;
+    --linkh: #b6ecfb;
+    --panel: #013b48;
+    --btnbd: #557788;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--desk); color: var(--ink);
+    font: 14px/1.4 "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  /* Grid.ColumnDefinitions 275 / 4000* / 220 */
+  #RootGrid {
+    display: grid;
+    grid-template-columns: 275px minmax(0, 1fr) 220px;
+    height: 100vh; width: 100vw;
+  }
+  #RootGrid.no-xsection { grid-template-columns: 275px minmax(0, 1fr) 0px; }
+  #RootGrid.no-xsection #Chart2DContainer { visibility: hidden; }
+  #UIColContainer { padding: 6px 0 0 6px; overflow-y: auto; }
+  #UIColContainer label { display: block; margin: 0 0 2px; }
+  .cbrow { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .cbrow input[type=checkbox] { width: 20px; height: 20px; }
+  .cbrow span { font-size: 20px; }
+  select, button {
+    background: #01202A; color: var(--ink);
+    border: 1px solid #2a5a68; border-radius: 3px;
+    font: inherit; padding: 4px 6px;
+  }
+  #HeightMaps { width: 268px; font-size: 15px; margin: 6px 0 12px; }
+  #ReduceDataLabel { font-size: 18px; }
+  #HelpButton { font-size: 18px; }
+  input[type=range] { width: 250px; margin: 2px 0 8px; accent-color: #4fc3d9; }
+  .slider-label { font-size: 14px; color: #cfe8ef; margin-top: 6px; }
+
+  #Chart2DContourContainer {
+    position: absolute; left: 0; top: 495px;
+    width: 306px; height: 306px; z-index: 3;
+    max-height: calc(100vh - 515px);
+  }
+  #ChartContainer { position: relative; min-width: 0; }
+  /* The rotation/zoom/exaggeration stack floats over the 3D chart, as the
+     XAML StackPanel with Canvas.ZIndex 2 and Margin 0,30,0,0 does. */
+  #ChartSliders {
+    position: absolute; left: 0; top: 30px; z-index: 2;
+    pointer-events: auto; text-shadow: 0 1px 2px #000;
+  }
+
+  #Chart2DContainer { position: relative; }
+  #Chart2DLineBox {
+    position: absolute; left: 0; top: 80px; right: 5px; bottom: 50px;
+    width: auto; height: auto;
+  }
+
+  .chartbox {
+    position: relative; width: 100%; height: 100%;
+    font-size: 0; line-height: 0;
+    background: var(--desk);
+  }
+  .chartbox canvas { position: absolute; left: 0; top: 0; }
+
+  .chartbox .pe-control canvas:focus { outline: none; }
+  .chartbox canvas.gpu  { z-index: 0; }
+  .chartbox canvas.text { z-index: 1; }
+  .chartbox canvas.meta { z-index: 1; }
+
+  #boot {
+    position: absolute; inset: 0; z-index: 20; background: var(--desk);
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 40px;
+  }
+  #boot.done { display: none; }
+  #boot .inner { max-width: 720px; }
+  #boot h1 { font-size: 20px; margin: 0 0 10px; font-weight: 600; }
+  #boot p { color: #a9ccd6; }
+  #boot code { color: #ffd479; }
+
+  /* -- EXTERNAL LINKS --------------------------------------------------- */
+  .exlink {
+    color: var(--link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;          /* never split the name from its glyph */
+  }
+  .exlink:hover, .exlink:focus-visible { color: var(--linkh); }
+  .exlink:focus-visible { outline: 2px solid var(--linkh); outline-offset: 2px; }
+  .exlink svg {
+    width: .8em; height: .8em; margin-left: .35em;
+    vertical-align: -.05em; fill: none;
+    stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+
+  /* -- HELP DIALOG (the C#'s ContentDialog) ------------------------------ */
+  #help {
+    position: fixed; inset: 0; display: none; z-index: 30;
+    background: rgba(0,0,0,.55); align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  #help.on { display: flex; }
+  #help .box {
+    background: var(--panel); border: 1px solid var(--btnbd);
+    padding: 16px 20px; line-height: 1.4; font-size: 13px;
+    max-width: 980px; max-height: 92vh; overflow: auto;
+  }
+  #help h3 { margin: 0 0 10px; font-size: 17px; font-weight: 600; }
+  #help .cols { columns: 2; column-gap: 30px; }
+  #help section { break-inside: avoid; margin: 0 0 10px; }
+  #help h4 {
+    margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9fe0f0;
+  }
+  #help ol, #help ul { margin: 0; padding-left: 20px; }
+  #help p { margin: 0 0 6px; }
+  #help .note { color: #a9ccd6; }
+  /* THE LICENSE NOTICE. Full width beneath the two columns.
+
+     A copyright that exists only at the top of a source file reaches nobody
+     who just runs the demo, so the notice a visitor actually sees lives here.
+     The wording is the same summary as PEJS-LICENSE.md and the About box in
+     PeDemoWasm; gigasoft.com/license is the authority and everything past
+     the summary is a link, so the copies cannot drift on anything that
+     matters. */
+  #help .license {
+    margin-top: 2px; padding-top: 10px;
+    border-top: 1px solid var(--btnbd); color: #a9ccd6;
+  }
+  #help .license .mention { color: #9fe0f0; margin-bottom: 0; }
+  #help footer {
+    margin-top: 6px; display: flex; justify-content: flex-end;
+  }
+  #help button {
+    background: #335566; color: var(--ink); border: 1px solid var(--btnbd);
+    padding: 5px 18px; font: inherit; cursor: pointer;
+  }
+  #help button:hover { background: #416a7e; }
+  @media (max-width: 800px) { #help .cols { columns: 1; } }
+
+  /* ---- PHONE, LANDSCAPE: sliders left, one big surface right ------------- */
+  @media (max-height: 480px) {
+    html, body { overflow: hidden; height: 100%; }
+    body { -webkit-text-size-adjust: 100%; }
+
+    /* Two columns, not three. The cross-section is gone with X Plane. */
+    #RootGrid, #RootGrid.no-xsection {
+      grid-template-columns: 172px minmax(0, 1fr);
+      width: 100%; height: 100vh; height: 100dvh;
+    }
+    #UIColContainer { order: 1; overflow-y: auto; padding: 6px 8px 10px; }
+    #ChartContainer { order: 2; height: 100vh; height: 100dvh; }
+    #Chart2DContainer { display: none; }
+    #Chart2DContourContainer { display: none; }
+
+    #PeContainer { touch-action: none; }
+
+    #ChartSliders {
+      position: static; left: auto; top: auto;
+      text-shadow: none; margin: 0 0 6px;
+    }
+
+    /* Eight sliders in 402px of height. Compact, and the column scrolls. */
+    #UIColContainer input[type=range],
+    #ChartSliders input[type=range] { width: 100%; margin: 0 0 6px; }
+    #UIColContainer .slider-label,
+    #ChartSliders .slider-label { font-size: 11px; margin-top: 2px; }
+    #HeightMaps { width: 100%; font-size: 11px; margin: 0 0 6px; }
+    #UIColContainer .cbrow { margin: 2px 0; }
+    #UIColContainer .cbrow span { font-size: 14px; }
+    #HelpButton { font-size: 14px; padding: 3px 8px; }
+
+    /* The controls whose features the phone build does not offer, so a dead
+       checkbox never appears. */
+    #rowShowLegend, #rowHotSpots, #rowShowPlane, #rowReduceData { display: none; }
+  }
+
+  /* ---- TOUCH DEVICE, PORTRAIT: ask for landscape ------------------------- */
+  /* *** THE `max-width: 820px` CAP WAS REMOVED 2026-08-25. ***
+     Robert: "all mobile views should only support landscape as attempting a
+     portrait is not good." The cap meant every touch device WIDER than 820
+     CSS px in portrait skipped the prompt and rendered the app in portrait,
+     which is exactly the case the rule exists to prevent. MEASURED before the
+     change, by hit-testing the middle of the viewport rather than reading the
+     CSS:
+
+         375x812   iPhone            #rotate on top     enforced
+         768x1024  iPad 9.7          #rotate on top     enforced
+         834x1194  iPad Pro 11       canvas on top      NOT enforced
+         1024x1366 iPad Pro 12.9     canvas on top      NOT enforced
+
+     `pointer: coarse` is the whole gate now and it is enough on its own: a
+     touchscreen laptop with a mouse reports `pointer: fine` and only
+     `any-pointer: coarse`, so a desktop window is still never told to rotate.
+     Same rule PeDemoWasm already used, which is why PeDemoWasm was the only
+     one of the three that passed at 834 and above.
+
+     It matters more here than anywhere: a portrait tablet gets a 3D surface
+     squeezed into the short axis with the slider column stacked under it. */
+  #rotate { display: none; }
+  @media (pointer: coarse) and (orientation: portrait) {
+    #rotate {
+      display: flex; position: fixed; inset: 0; z-index: 25;
+      background: var(--desk); color: var(--ink);
+      align-items: center; justify-content: center; text-align: center;
+      padding: 32px;
+    }
+    #rotate .inner { max-width: 460px; }
+    #rotate h2 { font-size: 20px; margin: 0 0 12px; font-weight: 600; }
+    #rotate p { color: #a9ccd6; margin: 0 0 8px; }
+    #rotate .glyph {
+      width: 92px; height: 56px; margin: 0 auto 22px;
+      border: 3px solid var(--link); border-radius: 9px;
+      position: relative;
+      animation: tip 2.6s ease-in-out infinite;
+    }
+    /* the speaker slot, so it reads as a phone and not as a box */
+    #rotate .glyph::before {
+      content: ''; position: absolute; top: 50%; right: 5px;
+      width: 3px; height: 16px; margin-top: -8px;
+      background: var(--link); border-radius: 2px;
+    }
+    @keyframes tip {
+      0%, 12%   { transform: rotate(90deg); }
+      32%, 100% { transform: rotate(0deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #rotate .glyph { animation: none; }
+    }
+  }
+
+  /* ---- NARROW AND TALL: the stacked fallback ----------------------------- */
+  @media (max-width: 760px) {
+    /* The app stops being a fixed-viewport app and becomes a scrolling page.
+       That is the whole structural change; everything below follows from it. */
+    html, body { overflow: auto; height: auto; }
+    /* Stop iOS enlarging the type on rotate and undoing the sizes above. */
+    body { -webkit-text-size-adjust: 100%; }
+    /* Same hide list as landscape: the phone BUILD is the same product in
+       either orientation, only the layout differs. */
+    #rowShowLegend, #rowHotSpots, #rowShowPlane, #rowReduceData { display: none; }
+    #Chart2DContourContainer { display: none; }
+
+    #RootGrid, #RootGrid.no-xsection {
+      grid-template-columns: 1fr;
+      width: 100%; height: auto;
+      min-height: 100vh;
+      min-height: 100dvh;      /* dvh excludes the collapsing browser bar */
+    }
+
+    #ChartContainer   { order: 1; height: 58vh; height: 58dvh; min-height: 300px; }
+    #UIColContainer   { order: 2; overflow: visible; padding: 10px 12px 4px; }
+    #Chart2DContainer { order: 3; height: 46vh; min-height: 260px; }
+
+    #RootGrid.no-xsection #Chart2DContainer { display: none; }
+
+    #PeContainer, #Chart2DContourBox, #Chart2DLineBox { touch-action: none; }
+
+    #ChartSliders {
+      position: static; left: auto; top: auto;
+      text-shadow: none; margin: 0 0 6px;
+    }
+
+    /* Fixed control widths were sized for the 275px column. */
+    #HeightMaps { width: 100%; max-width: 460px; }
+    #UIColContainer input[type=range],
+    #ChartSliders input[type=range] { width: 100%; max-width: 460px; }
+
+    /* absolute + inset:0 covers only the first viewport once the page scrolls;
+       the boot screen has to cover the page. */
+    #boot { position: fixed; }
+  }
+</style>
+
+<!-- `no-xsection` because the X Plane checkbox starts unchecked and the
+     cross-section starts hidden. ShowPlane_Checked / _UnChecked toggle it. -->
+<div id="RootGrid" class="no-xsection">
+
+  <!-- Left UI panel -- the XAML StackPanel, control for control. -->
+  <div id="UIColContainer">
+    <select id="HeightMaps"></select>
+
+    <div class="cbrow" id="rowShowLegend"><input type="checkbox" id="ShowLegend"><span>Legend</span></div>
+    <div class="cbrow"><input type="checkbox" id="BottomContour"><span>Bottom Contour</span></div>
+    <div class="cbrow" id="rowShowPlane"><input type="checkbox" id="ShowPlane"><span>X Plane</span></div>
+    <div class="cbrow" id="rowHotSpots"><input type="checkbox" id="HotSpots"><span>Cursor Tracking</span></div>
+
+    <div class="cbrow" id="rowReduceData">
+      <span id="ReduceDataLabel">Reduce Data</span>
+      <select id="ReduceDataAmount"></select>
+    </div>
+
+    <button id="HelpButton" style="margin:6px 0 14px">Help ?</button>
+
+    <div class="slider-label">Move Horizontally</div>
+    <input type="range" id="SliderHorizontalMove" min="-10" max="10" step="0.1" value="0">
+
+    <div class="slider-label">Move Vertically</div>
+    <input type="range" id="SliderVerticalMove" min="-10" max="10" step="0.1" value="2.5">
+
+    <div class="slider-label">Rotate Light Horizontally</div>
+    <input type="range" id="SliderHorizontalLightRotation" min="0" max="360" step="1" value="180">
+
+    <div class="slider-label">Rotate Light Vertically</div>
+    <input type="range" id="SliderVerticalLightRotation" min="0" max="360" step="1" value="300">
+  </div>
+
+  <!-- 3D surface. Column 1 in the XAML, spanning into column 2. -->
+  <div id="ChartContainer">
+    <div id="ChartSliders">
+      <div class="slider-label">Vertical rotation</div>
+      <input type="range" id="SliderVerticalRotation" min="-90" max="90" step="1" value="28">
+      <div class="slider-label">Horizontal rotation</div>
+      <input type="range" id="SliderHorizontalRotation" min="0" max="360" step="1" value="145">
+      <div class="slider-label">Magnification / Distance</div>
+      <input type="range" id="SliderZoom" min="-60" max="-5" step="0.1" value="-60">
+      <div class="slider-label">Explode Z Axis</div>
+      <input type="range" id="SliderZExaggeration" min="1" max="50" step="1" value="10">
+    </div>
+    <div class="chartbox" id="PeContainer"></div>
+  </div>
+
+  <!-- 2D cross-section. Hidden at startup, exactly as Main_Loaded collapses
+       Chart2DContainer before anything is loaded. -->
+  <div id="Chart2DContainer">
+    <div class="chartbox" id="Chart2DLineBox"></div>
+    <input type="range" id="SliderXPlane" min="0" max="100" step="1" value="40"
+           style="position:absolute; right:10px; top:50px; width:150px; z-index:2">
+  </div>
+</div>
+
+<!-- The contour overlays everything, so it sits outside the grid flow. -->
+<div id="Chart2DContourContainer">
+  <div class="chartbox" id="Chart2DContourBox"></div>
+</div>
+
+<div id="help"><div class="box">
+  <h3><a class="exlink" href="https://www.gigasoft.com" target="_blank"
+         rel="noopener noreferrer" title="Opens gigasoft.com in a new browser tab"
+         >GigaPrime3D<svg viewBox="0 0 24 24" aria-hidden="true"
+         ><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a> Help</h3>
+
+  <div class="cols">
+    <section>
+      <h4>3D Chart</h4>
+      <ol>
+        <li>Left button and drag to rotate.</li>
+        <li>Shift + Left button drag to translate surface.</li>
+        <li>Mouse Wheel zooms in and out entire scene.</li>
+        <li class="note">Middle button and drag adjusts light location.
+            Desktop only; use the two light sliders here.</li>
+        <li>Right click shows popup menu.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h4>2D Contour, bottom left</h4>
+      <ol>
+        <li>Left button and drag to zoom. Also zooms the 3D chart.</li>
+        <li>Right click shows popup menu.</li>
+        <li>Right click Undo Zoom to undo the 3D chart's zoom.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h4>Sliders</h4>
+      <p>Sliders allow manipulation similar to the click and drag built in UI.</p>
+    </section>
+
+    <section>
+      <h4>Explode Z Axis</h4>
+      <p>Adjusts the aspect ratio of the z axis to the xy axes. This process
+         requires the triangle data to be re-constructed.</p>
+    </section>
+
+    <section>
+      <h4>Cursor Tracking</h4>
+      <p>Enables cursor prompt tracking of the mouse across the 3D surface.
+         This setting may reset itself based on various UI behaviors.</p>
+    </section>
+
+    <section>
+      <h4>Reduce Data</h4>
+      <p>Provides more responsive cursor tracking.</p>
+    </section>
+
+    <section>
+      <h4>This build</h4>
+      <p>Runs the same C++ engine as the desktop control, compiled to
+         WebAssembly, with the surface on WebGPU.</p>
+      <p>Gigasoft plots this data faster than any other known 3D chart.</p>
+    </section>
+  </div>
+
+  <div class="license">
+    <h4>License</h4>
+    <p>ProEssentialsJS -- the ProEssentials charting engine compiled to
+       WebAssembly, with a .NET-shaped JavaScript API.
+       Copyright 1994-2026 Gigasoft, Inc. All rights reserved.</p>
+    <p>A commercial product, and free for commercial use -- including
+       redistribution -- by organizations under USD 250,000 annual gross
+       revenue. No watermark, no feature gates, no expiry and no reduced
+       feature set. No license key, no activation, no domain locking and no
+       phone home: nothing here contacts Gigasoft at build time or at run
+       time, and it collects no usage data.</p>
+    <p>Full terms: <a class="exlink" href="https://www.gigasoft.com/license"
+       target="_blank" rel="noopener noreferrer"
+       title="Opens gigasoft.com in a new browser tab">gigasoft.com/license</a>.
+       Summary that travels with this demo: <a class="exlink"
+       href="./PEJS-LICENSE.md" target="_blank" rel="noopener noreferrer"
+       >PEJS-LICENSE.md</a>.</p>
+    <!-- SOURCE LINK, added 2026-08-26 on Robert's instruction. This demo went
+         public on 08/25 and nothing on it, or on the site, led to the code. A
+         developer deciding whether to adopt a charting library reads the
+         source, and the only route until now was to view-source on a bundle.
+         The repo is one of the five going public at launch; the distribution
+         repo proessentials-js is deliberately NOT among them, so do not add a
+         second link to it. See github\PLAN-GITHUB.md section 2b. -->
+    <p>This demo is on GitHub: <a class="exlink"
+       href="https://github.com/GigasoftInc/proessentials-js-gigaprime3d"
+       target="_blank" rel="noopener noreferrer"
+       title="Opens github.com in a new browser tab"
+       >proessentials-js-gigaprime3d</a>. Clone it and run
+       <code>npm start</code>.</p>
+    <p class="mention">If you are using ProEssentialsJS in your study or work,
+       please mention us on social media. It helps more than you would think.</p>
+  </div>
+
+  <footer><button id="helpOk" type="button">OK</button></footer>
+</div></div>
+
+<div id="boot"><div class="inner">
+  <h1>GigaPrime3D</h1>
+  <p id="bootmsg">loading the ProEssentials module...</p>
+</div></div>
+
+<div id="rotate"><div class="inner">
+  <div class="glyph"></div>
+  <h2>Turn your phone sideways</h2>
+  <p>GigaPrime3D draws a lit 3D surface on the GPU, and a surface needs a
+     landscape screen to be worth looking at.</p>
+  <p>Rotate the device to start.</p>
+</div></div>
+
+<script src="./lib/proessentials.iife.js"></script>
+<script type="module" src="./app/main.js"></script>
