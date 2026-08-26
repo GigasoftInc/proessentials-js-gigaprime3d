@@ -6,6 +6,9 @@
 
 ![ProEssentials JavaScript 3D Surface Contour Chart WebGPU](docs/javascript-3d-surface-chart-live-demo.png)
 
+
+**See this repo live now in your browser: [click here](https://gigasoft.com/javascript-3d-surface-chart-live-demo/)**
+
 The same `Pe3do` scientific graph object that ships on the desktop, with its own
 popup menu, scrollbars and zoom -- rotate it, zoom it, switch data sets.
 
