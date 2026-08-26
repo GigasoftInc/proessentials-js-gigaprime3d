@@ -9,6 +9,9 @@
 
 **See this repo live now in your browser: [click here](https://gigasoft.com/javascript-3d-surface-chart-live-demo/)**
 
+If you like what you see, we'd appreciate a star -- it helps more
+than you realize.
+
 The same `Pe3do` scientific graph object that ships on the desktop, with its own
 popup menu, scrollbars and zoom -- rotate it, zoom it, switch data sets.
 
