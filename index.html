@@ -275,7 +275,13 @@
   }
 
   /* ---- NARROW AND TALL: the stacked fallback ----------------------------- */
-  @media (max-width: 760px) {
+  /* NOT (max-width: 760px) alone. A small phone in LANDSCAPE -- iPhone SE is
+     667x375 -- matches BOTH this and the (max-height: 480px) block above, and
+     this one is later in the file, so it won at equal specificity and put the
+     controls BELOW the chart on exactly the devices the landscape layout was
+     written for. The min-height clause makes the two mutually exclusive:
+     short screen gets the 172px column, tall narrow screen gets this. */
+  @media (max-width: 760px) and (min-height: 481px) {
     /* The app stops being a fixed-viewport app and becomes a scrolling page.
        That is the whole structural change; everything below follows from it. */
     html, body { overflow: auto; height: auto; }

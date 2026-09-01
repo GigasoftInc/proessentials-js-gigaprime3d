@@ -569,6 +569,15 @@ export {
 
     await PeControl.loadNotifyNames('./lib/pewn-names.json');
 
+    // The visitor's own language, for the popup menus and the built-in
+    // dialogs. No tag: PeControl.culture() reads navigator.languages, and the
+    // candidate walk maximizes the tag before matching, so zh-CN finds the
+    // zh-Hans bundle rather than falling through to English. English is
+    // overlaid underneath every culture, so an id a translation lacks keeps its
+    // English label instead of the engine dropping the feature that needed it.
+    // Before the controls exist, because the menus are built with them.
+    await PeControl.loadStrings(m);
+
     const box = $('PeContainer').getBoundingClientRect();
     W3 = Math.max(320, Math.round(box.width));
     H3 = Math.max(240, Math.round(box.height));
