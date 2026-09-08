@@ -2,9 +2,9 @@
 // Commercial product, free for commercial use under USD 250,000 annual
 // revenue. See PEJS-LICENSE.md -- https://www.gigasoft.com
 
-// The Height Map combo's nine entries, in the C#'s order. The .bhm files were
-// resampled to web size by tools\make-web-bhm.py, so the label carries the
-// desktop's original dimensions alongside.
+// The Height Map combo's nine entries, in the C#'s order. The .bhm files are
+// resampled to web size, so each label carries the desktop's original
+// dimensions alongside.
 export const DATA_FILES = Object.freeze([
   { file: 'MaterialSurfaceScan1-1232x1028.bhm',
     label: 'MaterialSurfaceScan1  1232x1028  (2464x2056 on the desktop)' },

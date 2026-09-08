@@ -11,35 +11,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <!--
-  SEARCH AND SHARING. Added 2026-08-25 by web-chat for the public launch.
-  Live at https://gigasoft.com/javascript-3d-surface-chart-live-demo/.
-
-  The old title was "GigaPrime3D -- ProEssentials on WebGPU". "WebGPU" is
-  worth keeping in the description because people do search it, but the
-  phrase that brings someone here is "javascript 3d surface chart".
-
-  *** THIS PAGE IS THE ONE THAT DIES WITHOUT HTTPS. *** navigator.gpu is
+  *** THIS PAGE DIES WITHOUT HTTPS, AND IT DIES QUIETLY. *** navigator.gpu is
   undefined in any non-secure context, so on a plain http:// host WebGPU is
-  simply absent and this demo renders nothing while throwing nothing useful.
-  gigasoft.com force-redirects http to https, which is why the canonical
-  below is https and why these demos live on that hostname rather than on a
-  new one that would need its own certificate.
+  simply absent: the demo renders nothing and throws nothing useful, which
+  reads as a driver fault rather than a missing capability.
 
-  Canonical is load bearing for the usual reason as well: IIS rewrite
-  matching is case-insensitive, so an upper-case spelling of the path serves
-  this same page. Trailing slash because the bare path 301s to it.
-
-  NO og:image yet -- nothing at 1200x630 exists outside shots\, which the
-  deploy filter excludes.
+  Serve it over https, or from localhost, which counts as a secure context.
+  `serve.js` in this repo exists for exactly that reason -- opening index.html
+  off the filesystem hits the same gate.
 -->
-<title>JavaScript 3D Surface Chart Live Demo | ProEssentials</title>
+<title>ProEssentials 3D Surface Chart Example</title>
+<!-- OUTSIDE THE SEO BLOCK ON PURPOSE. A clone keeps all three: a page needs a
+     title, the icon ships with the repo, and the description names no domain
+     and describes the demo a cloner is actually running. -->
+<link rel="icon" href="favicon.ico" sizes="any">
 <meta name="description" content="A 3D surface chart rendered on WebGPU in the browser. Rotate, zoom and change the surface live, with contour and 2D views of the same data.">
-<link rel="canonical" href="https://gigasoft.com/javascript-3d-surface-chart-live-demo/">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://gigasoft.com/javascript-3d-surface-chart-live-demo/">
-<meta property="og:title" content="JavaScript 3D Surface Chart Live Demo | ProEssentials">
-<meta property="og:description" content="A 3D surface chart on WebGPU. Rotate, zoom and change the surface live, with contour and 2D views of the same data.">
-<meta name="twitter:card" content="summary">
+
+
 <style>
   :root {
     /* Color.FromArgb(255, 0x00, 0x2B, 0x35) -- Desk and GraphBackground in
@@ -55,6 +43,8 @@
     margin: 0; padding: 0; height: 100%;
     background: var(--desk); color: var(--ink);
     font: 14px/1.4 "Segoe UI", system-ui, sans-serif;
+    /* A fixed-viewport app. The demo fills exactly one screen and never
+       scrolls. */
     overflow: hidden;
   }
   /* Grid.ColumnDefinitions 275 / 4000* / 220 */
@@ -81,6 +71,11 @@
   input[type=range] { width: 250px; margin: 2px 0 8px; accent-color: #4fc3d9; }
   .slider-label { font-size: 14px; color: #cfe8ef; margin-top: 6px; }
 
+  /* top is a HARDCODED 495px and the control column's usable height is
+     therefore hardcoded too -- the light sliders end at 487 against it, eight
+     pixels of slack. Nothing may push this box down: the last two sliders
+     would end up UNDERNEATH it, still clickable, invisible, with no scrollbar
+     to hint at it. */
   #Chart2DContourContainer {
     position: absolute; left: 0; top: 495px;
     width: 306px; height: 306px; z-index: 3;
@@ -111,6 +106,43 @@
   .chartbox canvas.gpu  { z-index: 0; }
   .chartbox canvas.text { z-index: 1; }
   .chartbox canvas.meta { z-index: 1; }
+
+  /* *** THE CONTROL COLUMN SCROLLS, AND IT SHOULD HAVE ALL ALONG. ***
+     Measured: the light sliders end at 487 against a contour box starting at
+     495. EIGHT pixels. That is not slack, it is luck -- any window
+     ten pixels shorter hides two working controls UNDER the chart, silently,
+     with no scrollbar to say so. overflow-y auto degrades instead: on a short
+     window the column scrolls and every control stays reachable. */
+
+  /* The download card. Shown by a class, because two places drive it and a
+     class is the only state either has to set. Sits ABOVE #boot's z-index 20
+     so it is never trapped behind the startup overlay. */
+  #busy {
+    position: fixed; inset: 0; z-index: 22; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0, 43, 53, .55);
+  }
+  #busy.on { display: flex; }
+  #busy .card {
+    background: var(--panel); border: 1px solid var(--btnbd);
+    padding: 18px 22px; min-width: 260px; max-width: calc(100vw - 40px);
+    text-align: center;
+  }
+  #busy .ring {
+    width: 26px; height: 26px; margin: 0 auto 12px;
+    border: 3px solid var(--btnbd); border-top-color: var(--link);
+    border-radius: 50%; animation: busyspin .9s linear infinite;
+  }
+  @keyframes busyspin { to { transform: rotate(360deg); } }
+  /* A spinner that cannot spin still has to say something: the ring stops and
+     the bar and percentage carry the message. */
+  @media (prefers-reduced-motion: reduce) { #busy .ring { animation: none; } }
+  #busy .what { font-size: 13px; color: var(--ink); margin: 0 0 10px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #busy .bar { height: 4px; background: var(--btnbd); overflow: hidden; }
+  #busy .bar i { display: block; height: 100%; width: 0;
+                 background: var(--link); transition: width .12s linear; }
+  #busy .pct { font-size: 11px; color: #a9ccd6; margin-top: 8px; min-height: 14px; }
 
   #boot {
     position: absolute; inset: 0; z-index: 20; background: var(--desk);
@@ -185,7 +217,10 @@
 
   /* ---- PHONE, LANDSCAPE: sliders left, one big surface right ------------- */
   @media (max-height: 480px) {
-    html, body { overflow: hidden; height: 100%; }
+    /* overflow-y auto, NOT hidden: the copy block below the app has to be
+       reachable on a phone, and indexing is mobile first. The portrait
+       query already scrolls; this makes landscape agree. */
+    html, body { overflow-x: hidden; overflow-y: auto; height: 100%; }
     body { -webkit-text-size-adjust: 100%; }
 
     /* Two columns, not three. The cross-section is gone with X Plane. */
@@ -221,13 +256,12 @@
   }
 
   /* ---- TOUCH DEVICE, PORTRAIT: ask for landscape ------------------------- */
-  /* *** THE `max-width: 820px` CAP WAS REMOVED 2026-08-25. ***
-     Robert: "all mobile views should only support landscape as attempting a
-     portrait is not good." The cap meant every touch device WIDER than 820
-     CSS px in portrait skipped the prompt and rendered the app in portrait,
-     which is exactly the case the rule exists to prevent. MEASURED before the
-     change, by hit-testing the middle of the viewport rather than reading the
-     CSS:
+  /* *** THERE IS DELIBERATELY NO `max-width` CAP HERE. ***
+     Mobile views support landscape only; a portrait 3D surface is not worth
+     looking at. A width cap meant every touch device WIDER than 820 CSS px in
+     portrait skipped the prompt and rendered the app in portrait, which is
+     exactly the case this rule exists to prevent. MEASURED by hit-testing the
+     middle of the viewport rather than reading the CSS:
 
          375x812   iPhone            #rotate on top     enforced
          768x1024  iPad 9.7          #rotate on top     enforced
@@ -325,6 +359,7 @@
 
 <!-- `no-xsection` because the X Plane checkbox starts unchecked and the
      cross-section starts hidden. ShowPlane_Checked / _UnChecked toggle it. -->
+
 <div id="RootGrid" class="no-xsection">
 
   <!-- Left UI panel -- the XAML StackPanel, control for control. -->
@@ -460,13 +495,10 @@
        Summary that travels with this demo: <a class="exlink"
        href="./PEJS-LICENSE.md" target="_blank" rel="noopener noreferrer"
        >PEJS-LICENSE.md</a>.</p>
-    <!-- SOURCE LINK, added 2026-08-26 on Robert's instruction. This demo went
-         public on 08/25 and nothing on it, or on the site, led to the code. A
-         developer deciding whether to adopt a charting library reads the
-         source, and the only route until now was to view-source on a bundle.
-         The repo is one of the five going public at launch; the distribution
-         repo proessentials-js is deliberately NOT among them, so do not add a
-         second link to it. See github\PLAN-GITHUB.md section 2b. -->
+    <!-- SOURCE LINK. A developer deciding whether to adopt a charting library
+         reads the source, and without this the only route is view-source on a
+         bundle. This demo's repo is public; the distribution repo
+         proessentials-js is deliberately NOT, so do not add a second link. -->
     <p>This demo is on GitHub: <a class="exlink"
        href="https://github.com/GigasoftInc/proessentials-js-gigaprime3d"
        target="_blank" rel="noopener noreferrer"
@@ -479,6 +511,20 @@
 
   <footer><button id="helpOk" type="button">OK</button></footer>
 </div></div>
+
+<!--
+  THE DOWNLOAD INDICATOR. #boot is hidden for good once startup finishes, so
+  every later height map switch fetched 3.4 to 8.4 MB with no feedback at all --
+  the page simply stopped responding for a few seconds. This says so instead.
+-->
+<div id="busy" aria-live="polite">
+  <div class="card">
+    <div class="ring" aria-hidden="true"></div>
+    <div class="what" id="busyWhat">loading</div>
+    <div class="bar"><i id="busyBar"></i></div>
+    <div class="pct" id="busyPct"></div>
+  </div>
+</div>
 
 <div id="boot"><div class="inner">
   <h1>GigaPrime3D</h1>

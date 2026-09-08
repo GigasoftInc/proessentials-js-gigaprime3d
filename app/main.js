@@ -11,7 +11,8 @@
 import { Enums as E3, attachApi as attach3d } from '../lib/pe-api-3d.js';
 import { Enums as ES, attachApi as attachSg } from '../lib/pe-api-sgraph.js';
 import { makeCore } from '../lib/pe-core.js';
-import { HeightMap } from './heightmap.js';
+import { HeightMap, pruneOldHeightMapCaches,
+         requestPersistentStorage } from './heightmap.js';
 import { MyColors } from './colors.js';
 import { makeGpu } from './gpu3d.js';
 import { DATA_FILES, MAX_CELLS, MAX_EDGE } from './datafiles.js';
@@ -24,6 +25,56 @@ const $ = (id) => document.getElementById(id);
 
 
 const boot = (msg) => { $('bootmsg').innerHTML = msg; };
+
+// --- the download indicator -------------------------------------------------
+// #boot covers the whole page and belongs to a demo that is not running yet.
+// This is a small card over a demo that IS running, so the chart stays visible
+// behind it while a height map switch downloads.
+//
+// It waits before appearing. A cached file arrives in a few milliseconds, and a
+// spinner that flashes for one frame on every switch reads as a fault; one that
+// appears only when there is genuinely something to wait for reads as progress.
+const BUSY_DELAY_MS = 180;
+let _busyTimer = 0;
+
+// Which height-map load owns the chart. See HeightMaps_SelectionChanged.
+let _loadGeneration = 0;
+
+// While the boot overlay is still up it is the thing the user is looking at,
+// so progress goes there and the card stays out of the way.
+const bootStillUp = () => !$('boot').classList.contains('done');
+
+const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+
+function busyStart(label) {
+  clearTimeout(_busyTimer);
+  if (bootStillUp()) { boot(label + ' ...'); return; }
+  $('busyWhat').textContent = label;
+  $('busyBar').style.width = '0%';
+  $('busyPct').textContent = '';
+  _busyTimer = setTimeout(() => $('busy').classList.add('on'), BUSY_DELAY_MS);
+}
+
+function busyProgress(got, total) {
+  if (bootStillUp()) {
+    boot(total > 0
+      ? 'loading data ... ' + Math.min(100, Math.round(got * 100 / total)) + '%'
+      : 'loading data ... ' + mb(got));
+    return;
+  }
+  if (total > 0) {
+    const pct = Math.min(100, Math.round(got * 100 / total));
+    $('busyBar').style.width = pct + '%';
+    $('busyPct').textContent = pct + '%  --  ' + mb(got) + ' of ' + mb(total);
+  } else {
+    $('busyPct').textContent = mb(got);
+  }
+}
+
+function busyDone() {
+  clearTimeout(_busyTimer);
+  $('busy').classList.remove('on');
+}
 
 const PHONE_MQ = '(max-width: 760px), (max-height: 480px)';
 const isPhone = () => window.matchMedia(PHONE_MQ).matches;
@@ -553,6 +604,11 @@ export {
       return;
     }
 
+    // Housekeeping for the height-map cache. Neither call is awaited for its
+    // result and neither can reject -- the demo does not wait on storage.
+    pruneOldHeightMapCaches();
+    requestPersistentStorage();
+
     boot('loading the ProEssentials module...');
     m = await ProEssentials();
 
@@ -981,8 +1037,31 @@ async function HeightMaps_SelectionChanged() {
   Chart2DContour.PeGrid.Zoom.Mode = false;
 
   const newfile = $('HeightMaps').value || DATA_FILES[0].file;
+
+  // *** A NATIVE select FIRES change ON EVERY ARROW-KEY STEP, NOT ON COMMIT. ***
+  // Arrowing three positions therefore started three multi-megabyte loads that
+  // raced, and HeightMapA was assigned by whichever one finished last rather
+  // than by the file the user actually chose. Measured: arrowing three
+  // positions fetched 6.9 MB of two unwanted files, all three requests
+  // issued within 2ms of each other.
+  // The generation counter makes the newest selection the only one that can
+  // land. Nothing is cancelled -- a stale load simply has nowhere to go.
+  const myGeneration = ++_loadGeneration;
+  const stale = () => myGeneration !== _loadGeneration;
+
   boot('loading ' + newfile + ' ...');
-  HeightMapA = await HeightMap.load('./data/' + newfile);
+  busyStart('loading ' + newfile);
+  let loaded;
+  try {
+    loaded = await HeightMap.load('./data/' + newfile,
+                                  (got, total) => { if (!stale()) busyProgress(got, total); });
+  } finally {
+    // finally, or a failed load leaves the card up for good.
+    if (!stale()) busyDone();
+  }
+
+  if (stale()) return;                    // a newer selection owns the chart now
+  HeightMapA = loaded;
   if (!HeightMapA.IsValid) { console.warn('LOAD FAILED: ' + newfile); return; }
 
   RefreshUi(HeightMapA);
